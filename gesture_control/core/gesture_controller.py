@@ -5,11 +5,12 @@ import pyautogui
 import keyboard
 import mouse
 import time
-from threading import Thread
+from threading import Thread, Event
 from typing import Dict, List, Tuple, Optional, Callable
 from dataclasses import dataclass
 from enum import Enum
 import traceback
+import threading
 
 class GestureType(Enum):
     POINT = "point"
@@ -34,6 +35,7 @@ class GestureController:
         
         self.cap = None
         self.is_running = False
+        self.stop_event = Event()  # 用于控制线程停止
         self.is_mouse_control_enabled = False
         self.thread = None
         
@@ -127,7 +129,9 @@ class GestureController:
             
             print("启动处理线程...")
             self.is_running = True
+            self.stop_event.clear()  # 清除停止标志
             self.thread = Thread(target=self._process_frames)
+            self.thread.daemon = True  # 设置为守护线程
             self.thread.start()
             
             print("手势控制器启动成功")
@@ -141,29 +145,24 @@ class GestureController:
         """停止手势控制"""
         print("正在停止手势控制器...")
         
-        # 首先标记停止
-        self.is_running = False
-        
         try:
+            # 设置停止标志
+            self.stop_event.set()
+            self.is_running = False
+            
             # 等待线程结束
             if self.thread and self.thread.is_alive():
                 print("等待线程结束...")
                 self.thread.join(timeout=2.0)
-                
-                if self.thread.is_alive():
-                    print("警告: 线程未能正常结束，强制终止...")
-                    # 在这里我们不能真正"杀死"线程，但可以确保它会在下一次循环退出
-                    self.thread = None
             
-            # 释放摄像头资源
+            # 释放资源
             if self.cap and self.cap.isOpened():
                 print("释放摄像头资源...")
                 self.cap.release()
                 self.cap = None
             
-            # 释放MediaPipe资源
-            print("释放MediaPipe资源...")
             if self.hands:
+                print("释放MediaPipe资源...")
                 self.hands.close()
                 self.hands = None
             
@@ -178,7 +177,6 @@ class GestureController:
             print(f"停止手势控制器时出错: {e}")
             traceback.print_exc()
         finally:
-            # 确保标记为已停止
             self.is_running = False
             self.cap = None
             self.hands = None
@@ -186,7 +184,7 @@ class GestureController:
     def _process_frames(self):
         """处理视频帧并识别手势"""
         try:
-            while self.is_running:
+            while not self.stop_event.is_set():  # 使用事件来控制循环
                 if not self.cap or not self.cap.isOpened():
                     print("摄像头已关闭，线程退出")
                     break
@@ -199,49 +197,67 @@ class GestureController:
                 # 转换颜色空间并进行手部检测
                 image = cv2.flip(image, 1)
                 image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                results = self.hands.process(image_rgb)
+                
+                try:
+                    results = self.hands.process(image_rgb)
+                except Exception as e:
+                    print(f"处理手部检测时出错: {e}")
+                    continue  # 跳过这一帧，继续处理下一帧
 
                 if results.multi_hand_landmarks:
                     hand_landmarks = results.multi_hand_landmarks[0]
                     
-                    # 绘制手部关键点
-                    self.mp_draw.draw_landmarks(
-                        image,
-                        hand_landmarks,
-                        self.mp_hands.HAND_CONNECTIONS
-                    )
-                    
-                    # 收集手势数据
-                    landmarks_data = []
-                    for landmark in hand_landmarks.landmark:
-                        landmarks_data.append((landmark.x, landmark.y))
-                    
-                    # 处理手势
-                    if self.is_mouse_control_enabled:
-                        self._handle_mouse_control(hand_landmarks)
-                        if self.on_gesture_detected:
-                            self.on_gesture_detected("鼠标控制模式")
-                    else:
-                        self._detect_and_handle_gestures(hand_landmarks)
-                    
-                    self.prev_hand_landmarks = hand_landmarks
-                    
-                    # 如果有录制回调，发送手势数据
-                    if hasattr(self, 'on_gesture_record') and self.on_gesture_record:
-                        self.on_gesture_record(landmarks_data)
+                    try:
+                        # 绘制手部关键点
+                        self.mp_draw.draw_landmarks(
+                            image,
+                            hand_landmarks,
+                            self.mp_hands.HAND_CONNECTIONS
+                        )
+                        
+                        # 收集手势数据
+                        landmarks_data = []
+                        for landmark in hand_landmarks.landmark:
+                            landmarks_data.append((landmark.x, landmark.y))
+                        
+                        # 处理手势
+                        if self.is_mouse_control_enabled:
+                            self._handle_mouse_control(hand_landmarks)
+                            if self.on_gesture_detected:
+                                self.on_gesture_detected("鼠标控制模式")
+                        else:
+                            self._detect_and_handle_gestures(hand_landmarks)
+                        
+                        self.prev_hand_landmarks = hand_landmarks
+                        
+                        # 如果有录制回调，发送手势数据
+                        if hasattr(self, 'on_gesture_record') and self.on_gesture_record:
+                            self.on_gesture_record(landmarks_data)
+                    except Exception as e:
+                        print(f"处理手势数据时出错: {e}")
+                        continue  # 跳过这一帧的手势处理
                 else:
                     self.prev_hand_landmarks = None
                     if self.on_gesture_detected:
                         self.on_gesture_detected("无手势")
 
-                # 通过回调更新图像
-                if self.on_frame_update and self.is_running:
-                    self.on_frame_update(image)
+                # 通过回���更新图像
+                if self.on_frame_update and not self.stop_event.is_set():
+                    try:
+                        self.on_frame_update(image)
+                    except Exception as e:
+                        print(f"更新预览图像时出错: {e}")
                     
         except Exception as e:
             print(f"处理视频帧时出错: {e}")
+            traceback.print_exc()
         finally:
             print("视频处理线程结束")
+            # 清理资源
+            if self.cap and self.cap.isOpened():
+                self.cap.release()
+            if self.hands:
+                self.hands.close()
 
     def _handle_mouse_control(self, hand_landmarks):
         """处理鼠标控制模式"""
@@ -349,7 +365,7 @@ class GestureController:
                     # 触发自定义手势动作
                     self._trigger_custom_gesture(name)
                     self.prev_gesture_time = current_time
-                    return  # 识别到自定义手势��就返回，不再检测基本手势
+                    return  # 识别到自定义手势就返回，不再检测基本手势
         
         # 如果没有识别到自定义手势，则检测基本手势
         if self._is_pointing_gesture(hand_landmarks):
@@ -415,7 +431,7 @@ class GestureController:
         return np.mean(x_coords), np.mean(y_coords)
 
     def _detect_custom_gestures(self, hand_landmarks):
-        """检测自定义��势"""
+        """检测自定义手势"""
         if not self.custom_gestures:
             return
             
@@ -451,7 +467,7 @@ class GestureController:
         landmarks1 = self._normalize_landmarks(landmarks1)
         landmarks2 = self._normalize_landmarks(landmarks2)
         
-        # 计算距��
+        # 计算距离
         distance = np.mean(np.sqrt(np.sum((landmarks1 - landmarks2) ** 2, axis=1)))
         
         # 转换为相似度分数（0-1之间）
