@@ -7,7 +7,7 @@ from gesture_control.core.gesture_controller import GestureController
 
 def cleanup():
     """程序退出时的清理工作"""
-    print("执行最终清理...")
+    print("Execute Final Cleanup...")
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
@@ -16,17 +16,17 @@ if __name__ == "__main__":
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
         
-        print("正在初始化手势控制器...")
+        print("Init...")
         controller = GestureController()
         
-        print("正在创建主窗口...")
+        print("Create Main Window...")
         window = MainWindow(controller)
         
-        print("启动应用程序...")
+        print("Start Application...")
         window.mainloop()
         
     except Exception as e:
-        print(f"程序运行时出错: {e}")
+        print(f"Error: {e}")
         traceback.print_exc()
     finally:
         cleanup()

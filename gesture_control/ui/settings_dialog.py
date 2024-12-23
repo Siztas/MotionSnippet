@@ -12,7 +12,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.was_running = self.gesture_controller.is_running  # 记录原始运行状态
         
         # 设置窗口属性
-        self.title("设置")
+        self.title("Settings")
         self.geometry("600x800")
         self.resizable(False, False)
         
@@ -42,7 +42,7 @@ class SettingsDialog(ctk.CTkToplevel):
                 if restore_config:
                     self.gesture_controller.update_config(restore_config)
         except Exception as e:
-            print(f"关闭设置窗口时出错: {e}")
+            print(f"Error: {e}")
         finally:
             self.destroy()
 
@@ -82,19 +82,19 @@ class SettingsDialog(ctk.CTkToplevel):
         camera_frame = ctk.CTkFrame(self.scrollable_frame)
         camera_frame.pack(fill="x", padx=5, pady=5)
         
-        ctk.CTkLabel(camera_frame, text="摄像头设置").pack(anchor="w", padx=5, pady=5)
+        ctk.CTkLabel(camera_frame, text="Camera Settings").pack(anchor="w", padx=5, pady=5)
         
         # 摄像头选择
         camera_select_frame = ctk.CTkFrame(camera_frame)
         camera_select_frame.pack(fill="x", padx=5, pady=2)
         
-        ctk.CTkLabel(camera_select_frame, text="选择摄像头:").pack(side="left", padx=5)
+        ctk.CTkLabel(camera_select_frame, text="Select Camera:").pack(side="left", padx=5)
         
         # 获取可用摄像头列表
         available_cameras = self.get_available_cameras()
         
         # 创建摄像头选择变量并设置默认值
-        self.camera_var = ctk.StringVar(value="摄像头 0")  # 默认使用摄像头0
+        self.camera_var = ctk.StringVar(value="Camera 0")  # 默认使用摄像头0
         
         # 创建下拉菜单
         camera_menu = ctk.CTkOptionMenu(
@@ -108,7 +108,7 @@ class SettingsDialog(ctk.CTkToplevel):
         resolution_frame = ctk.CTkFrame(camera_frame)
         resolution_frame.pack(fill="x", padx=5, pady=2)
         
-        ctk.CTkLabel(resolution_frame, text="分辨率:").pack(side="left", padx=5)
+        ctk.CTkLabel(resolution_frame, text="Resolution:").pack(side="left", padx=5)
         
         # 常用分辨率列表
         resolutions = [
@@ -132,7 +132,7 @@ class SettingsDialog(ctk.CTkToplevel):
         display_frame = ctk.CTkFrame(self.scrollable_frame)
         display_frame.pack(fill="x", padx=5, pady=5)
         
-        ctk.CTkLabel(display_frame, text="显示器设置").pack(anchor="w", padx=5, pady=5)
+        ctk.CTkLabel(display_frame, text="Display Settings").pack(anchor="w", padx=5, pady=5)
         
         # 获取可用显示器列表
         available_displays = self.get_available_displays()
@@ -151,12 +151,12 @@ class SettingsDialog(ctk.CTkToplevel):
         gesture_frame = ctk.CTkFrame(self.scrollable_frame)
         gesture_frame.pack(fill="x", padx=5, pady=5)
         
-        ctk.CTkLabel(gesture_frame, text="手势设置").pack(anchor="w", padx=5, pady=5)
+        ctk.CTkLabel(gesture_frame, text="Gesture Settings").pack(anchor="w", padx=5, pady=5)
         
         # 手势检测阈值
         self.create_slider(
             gesture_frame,
-            "手势检测阈值:",
+            "Gesture Detection Threshold:",
             "gesture_threshold",
             0.5, 1.0, 0.05
         )
@@ -164,7 +164,7 @@ class SettingsDialog(ctk.CTkToplevel):
         # 手势相似度阈值
         self.create_slider(
             gesture_frame,
-            "手势相似度阈值:",
+            "Gesture Similarity Threshold:",
             "similarity_threshold",
             0.5, 1.0, 0.05
         )
@@ -172,7 +172,7 @@ class SettingsDialog(ctk.CTkToplevel):
         # 滑动手势阈值
         self.create_slider(
             gesture_frame,
-            "滑动手势阈值:",
+            "Swipe Gesture Threshold:",
             "swipe_threshold",
             0.05, 0.2, 0.01
         )
@@ -180,7 +180,7 @@ class SettingsDialog(ctk.CTkToplevel):
         # 手势冷却时间
         self.create_slider(
             gesture_frame,
-            "手势冷却时间(秒):",
+            "Gesture Cooldown Time(seconds):",
             "gesture_cooldown",
             0.1, 2.0, 0.1
         )
@@ -190,13 +190,13 @@ class SettingsDialog(ctk.CTkToplevel):
         mouse_frame = ctk.CTkFrame(self.scrollable_frame)
         mouse_frame.pack(fill="x", padx=5, pady=5)
         
-        ctk.CTkLabel(mouse_frame, text="鼠标控制设置").pack(anchor="w", padx=5, pady=5)
+        ctk.CTkLabel(mouse_frame, text="Mouse Control Settings").pack(anchor="w", padx=5, pady=5)
         
         # 鼠标灵敏度 - 使用实时更新
         sensitivity_frame = ctk.CTkFrame(mouse_frame)
         sensitivity_frame.pack(fill="x", padx=5, pady=2)
         
-        ctk.CTkLabel(sensitivity_frame, text="鼠标灵敏度:").pack(side="left", padx=5)
+        ctk.CTkLabel(sensitivity_frame, text="Mouse Sensitivity:").pack(side="left", padx=5)
         
         self.sensitivity_label = ctk.CTkLabel(sensitivity_frame, text="0.0")
         self.sensitivity_label.pack(side="right", padx=5)
@@ -218,7 +218,7 @@ class SettingsDialog(ctk.CTkToplevel):
         # 最小移动阈值
         self.create_slider(
             mouse_frame,
-            "最小移动阈值:",
+            "Minimum Movement Threshold:",
             "min_movement_threshold",
             0.0001, 0.01, 0.0001
         )
@@ -226,7 +226,7 @@ class SettingsDialog(ctk.CTkToplevel):
         # 鼠标更新间隔
         self.create_slider(
             mouse_frame,
-            "鼠标更新间隔(秒):",
+            "Mouse Update Interval(seconds):",
             "mouse_update_interval",
             0.016, 0.1, 0.001
         )
@@ -249,7 +249,7 @@ class SettingsDialog(ctk.CTkToplevel):
         # 保存按钮
         save_button = ctk.CTkButton(
             button_frame,
-            text="保存",
+            text="Save",
             command=self.save_settings
         )
         save_button.pack(side="left", padx=5)
@@ -257,7 +257,7 @@ class SettingsDialog(ctk.CTkToplevel):
         # 取消按钮
         cancel_button = ctk.CTkButton(
             button_frame,
-            text="取消",
+            text="Cancel",
             command=self.cancel
         )
         cancel_button.pack(side="right", padx=5)
@@ -265,7 +265,7 @@ class SettingsDialog(ctk.CTkToplevel):
         # 重置按钮
         reset_button = ctk.CTkButton(
             button_frame,
-            text="重置为默认",
+            text="Reset to Default",
             command=self.reset_to_default
         )
         reset_button.pack(side="right", padx=5)
@@ -307,17 +307,17 @@ class SettingsDialog(ctk.CTkToplevel):
             if cap.isOpened():
                 ret, _ = cap.read()
                 if ret:
-                    available_cameras.append(f"摄像头 {i}")
+                    available_cameras.append(f"Camera {i}")
                 cap.release()
-        return available_cameras if available_cameras else ["默认摄像头"]
+        return available_cameras if available_cameras else ["Default Camera"]
 
     def get_available_displays(self) -> list:
         """获取可用显示器列表"""
         try:
             monitors = screeninfo.get_monitors()
-            return [f"显示器 {i+1} ({m.width}x{m.height})" for i, m in enumerate(monitors)]
+            return [f"Display {i+1} ({m.width}x{m.height})" for i, m in enumerate(monitors)]
         except:
-            return ["主显示器"]
+            return ["Main Display"]
 
     def load_current_settings(self):
         """加载当前设置"""
@@ -331,9 +331,9 @@ class SettingsDialog(ctk.CTkToplevel):
         # 加载摄像头设置
         if "camera_index" in self.gesture_controller.config:
             camera_index = self.gesture_controller.config["camera_index"]
-            self.camera_var.set(f"摄像头 {camera_index}")
+            self.camera_var.set(f"Camera {camera_index}")
         else:
-            self.camera_var.set("摄像头 0")  # 默认使用摄像头0
+            self.camera_var.set("Camera 0")  # 默认使用摄像头0
         
         # 加载分辨率设置
         if "camera_resolution" in self.gesture_controller.config:
@@ -356,10 +356,10 @@ class SettingsDialog(ctk.CTkToplevel):
             
             # 2. 处理摄像头设置
             camera_value = self.camera_var.get()
-            if camera_value and camera_value != "默认摄像头":
+            if camera_value and camera_value != "Default Camera":
                 try:
                     camera_parts = camera_value.split()
-                    if len(camera_parts) >= 2 and camera_parts[0] == "摄像头":
+                    if len(camera_parts) >= 2 and camera_parts[0] == "Camera":
                         camera_index = int(camera_parts[1])
                         if "camera_index" not in self.gesture_controller.config or \
                            self.gesture_controller.config["camera_index"] != camera_index:
@@ -383,7 +383,7 @@ class SettingsDialog(ctk.CTkToplevel):
             
             # 4. 处理显示器设置
             display = self.display_var.get()
-            if display and display != "主显示器":
+            if display and display != "Main Display":
                 try:
                     display_parts = display.split()
                     if len(display_parts) >= 2:
@@ -400,7 +400,7 @@ class SettingsDialog(ctk.CTkToplevel):
             
             # 6. 如果需要，重启摄像头
             if need_restart and self.gesture_controller.is_running:
-                print("需要重启摄像头以应用新设置...")
+                print("Restart Camera to Apply New Settings...")
                 was_running = self.gesture_controller.is_running
                 if was_running:
                     self.gesture_controller.stop()
@@ -412,7 +412,7 @@ class SettingsDialog(ctk.CTkToplevel):
             self.destroy()
             
         except Exception as e:
-            print(f"保存设置时出错: {e}")
+            print(f"Error Saving Settings: {e}")
             import traceback
             traceback.print_exc()
 
@@ -444,7 +444,7 @@ class SettingsDialog(ctk.CTkToplevel):
                 label.configure(text=f"{value:.3f}")
         
         # 更新摄像头选择
-        self.camera_var.set("摄像头 0")
+        self.camera_var.set("Camera 0")
         
         # 更新分辨率
         self.resolution_var.set("640x480")
@@ -456,7 +456,7 @@ def show_settings_dialog(parent, gesture_controller) -> bool:
         dialog = SettingsDialog(parent, gesture_controller)
         return dialog.show()
     except Exception as e:
-        print(f"显示设置对话框时出错: {e}")
+        print(f"Error Showing Settings Dialog: {e}")
         import traceback
         traceback.print_exc()
         return False 

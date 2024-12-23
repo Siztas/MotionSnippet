@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 from .settings_dialog import show_settings_dialog
 from ..core.gesture_controller import GestureController
+from .record_dialog import show_record_dialog
 
 class MainWindow(ctk.CTk):
     def __init__(self, gesture_controller: GestureController):
@@ -12,7 +13,7 @@ class MainWindow(ctk.CTk):
         self.gesture_controller = gesture_controller
         
         # 设置窗口属性
-        self.title("手势控制")
+        self.title("Gesture Control")
         self.geometry("1200x800")
         
         # 创建UI组件
@@ -40,7 +41,7 @@ class MainWindow(ctk.CTk):
         # 在工具栏右侧添加设置按钮
         self.settings_button = ctk.CTkButton(
             toolbar,
-            text="设置",
+            text="Settings",
             width=80,
             command=self.show_settings
         )
@@ -73,45 +74,91 @@ class MainWindow(ctk.CTk):
         # 鼠标控制开关
         self.mouse_control = ctk.CTkSwitch(
             control_frame,
-            text="鼠标控制",
+            text="Mouse Control",
             command=self.toggle_mouse_control
         )
         self.mouse_control.pack(side="left", padx=10)
         
         # 状态标签
-        self.status_label = ctk.CTkLabel(control_frame, text="状态: 未启动")
+        self.status_label = ctk.CTkLabel(control_frame, text="Status: Not Started")
         self.status_label.pack(side="right", padx=5)
         
         # 右侧面板 - 手势列表和自定义
-        right_panel = ctk.CTkFrame(main_frame)
-        right_panel.pack(side="right", fill="both", padx=5, pady=5)
+        self.right_panel = ctk.CTkFrame(main_frame)
+        self.right_panel.pack(side="right", fill="both", padx=5, pady=5)
         
-        # 手势列表标签
-        ctk.CTkLabel(right_panel, text="可用手势:").pack(anchor="w", padx=5, pady=5)
+        # 创建手势控制区域
+        self.create_gesture_controls()
+
+    def create_gesture_controls(self):
+        """创建手势控制区域"""
+        # 默认手势列表
+        default_gestures_frame = ctk.CTkFrame(self.right_panel)
+        default_gestures_frame.pack(fill="x", padx=5, pady=5)
         
-        # 手势列表
-        gestures_frame = ctk.CTkFrame(right_panel)
-        gestures_frame.pack(fill="x", padx=5, pady=5)
+        ctk.CTkLabel(default_gestures_frame, text="Default Gestures:").pack(anchor="w", padx=5, pady=5)
         
         # 添加默认手势
-        self.add_gesture_item(gestures_frame, "指点", "click")
-        self.add_gesture_item(gestures_frame, "左滑", "left")
-        self.add_gesture_item(gestures_frame, "右滑", "right")
-        self.add_gesture_item(gestures_frame, "上滑", "up")
-        self.add_gesture_item(gestures_frame, "下滑", "down")
+        self.add_gesture_item(default_gestures_frame, "Point", "click")
+        self.add_gesture_item(default_gestures_frame, "Left Swipe", "left")
+        self.add_gesture_item(default_gestures_frame, "Right Swipe", "right")
+        self.add_gesture_item(default_gestures_frame, "Up Swipe", "up")
+        self.add_gesture_item(default_gestures_frame, "Down Swipe", "down")
         
         # 自定义手势区域
-        custom_frame = ctk.CTkFrame(right_panel)
+        custom_frame = ctk.CTkFrame(self.right_panel)
         custom_frame.pack(fill="x", padx=5, pady=5)
         
-        ctk.CTkLabel(custom_frame, text="自定义手势").pack(anchor="w", padx=5, pady=5)
+        ctk.CTkLabel(custom_frame, text="Custom Gestures:").pack(anchor="w", padx=5, pady=5)
         
+        # 手势列表滚动区域
+        self.gestures_scroll = ctk.CTkScrollableFrame(custom_frame, height=200)
+        self.gestures_scroll.pack(fill="x", padx=5, pady=2)
+        
+        # 添加手势按钮
         self.record_button = ctk.CTkButton(
             custom_frame,
-            text="录制新手势",
-            command=self.start_recording
+            text="Record New Gesture",
+            command=self.record_new_gesture
         )
         self.record_button.pack(fill="x", padx=5, pady=5)
+        
+        # 更新手势列表
+        self.update_gesture_list()
+
+    def record_new_gesture(self):
+        """录制新手势"""
+        if show_record_dialog(self, self.gesture_controller):
+            self.update_gesture_list()
+
+    def update_gesture_list(self):
+        """更新手势列表"""
+        # 清除现有列表
+        for widget in self.gestures_scroll.winfo_children():
+            widget.destroy()
+        
+        # 添加自定义手势
+        for name, (_, keys) in self.gesture_controller.custom_gestures.items():
+            gesture_frame = ctk.CTkFrame(self.gestures_scroll)
+            gesture_frame.pack(fill="x", padx=5, pady=2)
+            
+            # 手势名称和按键
+            info_text = f"{name} -> {', '.join(keys)}"
+            ctk.CTkLabel(gesture_frame, text=info_text).pack(side="left", padx=5)
+            
+            # 删除按钮
+            delete_button = ctk.CTkButton(
+                gesture_frame,
+                text="Delete",
+                width=60,
+                command=lambda n=name: self.delete_gesture(n)
+            )
+            delete_button.pack(side="right", padx=5)
+
+    def delete_gesture(self, name: str):
+        """删除自定义手势"""
+        self.gesture_controller.remove_custom_gesture(name)
+        self.update_gesture_list()
 
     def add_gesture_item(self, parent, name: str, action: str):
         """添加手势项"""
@@ -125,14 +172,14 @@ class MainWindow(ctk.CTk):
         if not self.gesture_controller.is_running:
             try:
                 self.gesture_controller.start()
-                self.start_button.configure(text="停止")
-                self.status_label.configure(text="状态: 运行中")
+                self.start_button.configure(text="Stop")
+                self.status_label.configure(text="Status: Running")
             except Exception as e:
-                self.status_label.configure(text=f"启动失败: {str(e)}")
+                self.status_label.configure(text=f"Start Failed: {str(e)}")
         else:
             self.gesture_controller.stop()
-            self.start_button.configure(text="启动")
-            self.status_label.configure(text="状态: 已停止")
+            self.start_button.configure(text="Start")
+            self.status_label.configure(text="Status: Stopped")
             # 清除预览图像
             self.preview_label.configure(image=None)
 
@@ -141,15 +188,15 @@ class MainWindow(ctk.CTk):
         enabled = self.mouse_control.get()
         self.gesture_controller.toggle_mouse_control(enabled)
         if enabled:
-            self.status_label.configure(text="状态: 鼠标控制已启用")
+            self.status_label.configure(text="Status: Mouse Control Enabled")
         else:
-            self.status_label.configure(text="状态: 鼠标控制已禁用")
+            self.status_label.configure(text="Status: Mouse Control Disabled")
 
     def show_settings(self):
         """显示设置对话框"""
         if show_settings_dialog(self, self.gesture_controller):
             # 如果设置已更改，更新UI
-            self.status_label.configure(text="设置已更新")
+            self.status_label.configure(text="Settings Updated")
 
     def update_preview(self, frame: np.ndarray):
         """更新预览画面"""
@@ -174,12 +221,7 @@ class MainWindow(ctk.CTk):
 
     def update_status(self, status: str):
         """更新状态显示"""
-        self.status_label.configure(text=f"状态: {status}")
-
-    def start_recording(self):
-        """开始录制新手势"""
-        # TODO: 实现手势录制功能
-        pass
+        self.status_label.configure(text=f"Status: {status}")
 
     def show(self):
         """显示窗口"""

@@ -11,6 +11,9 @@ from dataclasses import dataclass
 from enum import Enum
 import traceback
 import threading
+import json
+import os
+from pathlib import Path
 
 class GestureType(Enum):
     POINT = "point"
@@ -26,6 +29,25 @@ class GestureAction:
     keys: List[str]
     description: str
     is_mouse: bool = False  # 添加标记，区分是否为鼠标操作
+
+class KalmanFilter:
+    def __init__(self, process_variance=1e-4, measurement_variance=1e-2, initial_value=0.0):
+        self.process_variance = process_variance  # 过程噪声方差
+        self.measurement_variance = measurement_variance  # 测量噪声方差
+        self.estimate = initial_value  # 当前估计值
+        self.estimate_error = 1.0  # 估计误差
+        
+    def update(self, measurement):
+        # 预测步骤
+        prediction = self.estimate
+        prediction_error = self.estimate_error + self.process_variance
+        
+        # 更新步骤
+        kalman_gain = prediction_error / (prediction_error + self.measurement_variance)
+        self.estimate = prediction + kalman_gain * (measurement - prediction)
+        self.estimate_error = (1 - kalman_gain) * prediction_error
+        
+        return self.estimate
 
 class GestureController:
     def __init__(self):
@@ -55,28 +77,28 @@ class GestureController:
             GestureType.POINT: GestureAction(
                 GestureType.POINT,
                 ["click"],
-                "指点",
+                "Point",
                 is_mouse=True  # 标记为鼠标操作
             ),
             GestureType.SWIPE_LEFT: GestureAction(
                 GestureType.SWIPE_LEFT,
                 ["left"],
-                "左滑"
+                "Swipe Left"
             ),
             GestureType.SWIPE_RIGHT: GestureAction(
                 GestureType.SWIPE_RIGHT,
                 ["right"],
-                "右滑"
+                "Swipe Right"
             ),
             GestureType.SWIPE_UP: GestureAction(
                 GestureType.SWIPE_UP,
                 ["up"],
-                "上滑"
+                "Swipe Up"
             ),
             GestureType.SWIPE_DOWN: GestureAction(
                 GestureType.SWIPE_DOWN,
                 ["down"],
-                "下滑"
+                "Swipe Down"
             )
         }
         
@@ -88,18 +110,44 @@ class GestureController:
         # 自定义手势存储 - 修改为存储手势和动作
         self.custom_gestures: Dict[str, Tuple[List[Tuple[float, float]], List[str]]] = {}
         
-        # 配置参数
-        self.config = {
-            "mouse_sensitivity": 1.5,  # 鼠标移动灵敏度
+        # 添加卡尔曼滤波器
+        self.kalman_x = KalmanFilter()
+        self.kalman_y = KalmanFilter()
+        
+        # 配置文件路径
+        self.config_dir = Path("config")
+        self.config_file = self.config_dir / "settings.json"
+        self.gestures_file = self.config_dir / "custom_gestures.json"
+        
+        # 确保配置目录存在
+        self.config_dir.mkdir(exist_ok=True)
+        
+        # 默认配置参数
+        self.default_config = {
+            "mouse_sensitivity": 2.5,
             "gesture_threshold": 0.8,
             "smoothing_factor": 0.5,
-            "gesture_cooldown": 0.5,  # 秒
-            "mouse_update_interval": 0.016,  # 约60fps
-            "swipe_threshold": 0.1,  # 归一化距离
-            "similarity_threshold": 0.85,  # 手势相似度阈值
-            "recording_duration": 3.0,  # 录制持续时间（秒）
-            "min_movement_threshold": 0.001  # 最小移动阈值，防止抖动
+            "gesture_cooldown": 0.5,
+            "mouse_update_interval": 0.008,
+            "swipe_threshold": 0.05,  # 降低滑动阈值
+            "similarity_threshold": 0.85,
+            "recording_duration": 3.0,
+            "min_movement_threshold": 0.0005,
+            "kalman_process_variance": 1e-4,
+            "kalman_measurement_variance": 1e-2,
+            "max_move_scale": 0.2,
+            "screen_margin": 5
         }
+        
+        # 加载配置
+        self.config = self.load_config()
+        
+        # 加载自定义手势
+        self.custom_gestures = self.load_custom_gestures()
+        
+        # 设置PyAutoGUI安全设置
+        pyautogui.FAILSAFE = False
+        pyautogui.PAUSE = 0.0
 
     def set_callbacks(self, 
                      on_frame_update: Optional[Callable[[np.ndarray], None]] = None,
@@ -114,12 +162,12 @@ class GestureController:
             return
             
         try:
-            print("初始化摄像头...")
+            print("Initializing Camera...")
             self.cap = cv2.VideoCapture(0)
             if not self.cap.isOpened():
                 raise RuntimeError("无法打开摄像头")
             
-            print("初始化MediaPipe...")
+            print("Initializing MediaPipe...")
             self.hands = self.mp_hands.Hands(
                 static_image_mode=False,
                 max_num_hands=1,
@@ -127,23 +175,23 @@ class GestureController:
                 min_tracking_confidence=0.7
             )
             
-            print("启动处理线程...")
+            print("Starting Processing Thread...")
             self.is_running = True
             self.stop_event.clear()  # 清除停止标志
             self.thread = Thread(target=self._process_frames)
             self.thread.daemon = True  # 设置为守护线程
             self.thread.start()
             
-            print("手势控制器启动成功")
+            print("Gesture Controller Started Successfully")
             
         except Exception as e:
-            print(f"启动手势控制器时出错: {e}")
+            print(f"Error Starting Gesture Controller: {e}")
             self.stop()
             raise
 
     def stop(self):
         """停止手势控制"""
-        print("正在停止手势控制器...")
+        print("Stopping Gesture Controller...")
         
         try:
             # 设置停止标志
@@ -152,17 +200,17 @@ class GestureController:
             
             # 等待线程结束
             if self.thread and self.thread.is_alive():
-                print("等待线程结束...")
+                print("Waiting for Thread to Finish...")
                 self.thread.join(timeout=2.0)
             
             # 释放资源
             if self.cap and self.cap.isOpened():
-                print("释放摄像头资源...")
+                print("Releasing Camera Resources...")
                 self.cap.release()
                 self.cap = None
             
             if self.hands:
-                print("释放MediaPipe资源...")
+                print("Releasing MediaPipe Resources...")
                 self.hands.close()
                 self.hands = None
             
@@ -171,10 +219,10 @@ class GestureController:
             self.prev_gesture_time = time.time()
             self.prev_mouse_time = time.time()
             
-            print("手势控制器已停止")
+            print("Gesture Controller Stopped Successfully")
             
         except Exception as e:
-            print(f"停止手势控制器时出错: {e}")
+            print(f"Error Stopping Gesture Controller: {e}")
             traceback.print_exc()
         finally:
             self.is_running = False
@@ -186,12 +234,12 @@ class GestureController:
         try:
             while not self.stop_event.is_set():  # 使用事件来控制循环
                 if not self.cap or not self.cap.isOpened():
-                    print("摄像头已关闭，线程退出")
+                    print("Camera Closed, Thread Exiting")
                     break
                     
                 success, image = self.cap.read()
                 if not success:
-                    print("读取视频帧失败，线程退出")
+                    print("Failed to Read Video Frame, Thread Exiting")
                     break
 
                 # 转换颜色空间并进行手部检测
@@ -201,7 +249,7 @@ class GestureController:
                 try:
                     results = self.hands.process(image_rgb)
                 except Exception as e:
-                    print(f"处理手部检测时出错: {e}")
+                    print(f"Error Processing Hand Detection: {e}")
                     continue  # 跳过这一帧，继续处理下一帧
 
                 if results.multi_hand_landmarks:
@@ -234,30 +282,40 @@ class GestureController:
                         if hasattr(self, 'on_gesture_record') and self.on_gesture_record:
                             self.on_gesture_record(landmarks_data)
                     except Exception as e:
-                        print(f"处理手势数据时出错: {e}")
+                        print(f"Error Processing Gesture Data: {e}")
                         continue  # 跳过这一帧的手势处理
                 else:
                     self.prev_hand_landmarks = None
                     if self.on_gesture_detected:
-                        self.on_gesture_detected("无手势")
+                        self.on_gesture_detected("No Gesture")
 
-                # 通过回���更新图像
+                # 通过回调更新图像
                 if self.on_frame_update and not self.stop_event.is_set():
                     try:
                         self.on_frame_update(image)
                     except Exception as e:
-                        print(f"更新预览图像时出错: {e}")
+                        print(f"Error Updating Preview Image: {e}")
                     
         except Exception as e:
-            print(f"处理视频帧时出错: {e}")
+            print(f"Error Processing Video Frames: {e}")
             traceback.print_exc()
         finally:
-            print("视频处理线程结束")
+            print("Video Processing Thread Ended")
             # 清理资源
             if self.cap and self.cap.isOpened():
                 self.cap.release()
             if self.hands:
                 self.hands.close()
+
+    def _get_hand_size(self, hand_landmarks) -> float:
+        """计算手部大小（使用手掌宽度）"""
+        # 使用食指根部(5)到小指根部(17)的距离作为手掌宽度
+        index_mcp = hand_landmarks.landmark[5]
+        pinky_mcp = hand_landmarks.landmark[17]
+        
+        dx = index_mcp.x - pinky_mcp.x
+        dy = index_mcp.y - pinky_mcp.y
+        return np.sqrt(dx * dx + dy * dy)
 
     def _handle_mouse_control(self, hand_landmarks):
         """处理鼠标控制模式"""
@@ -271,19 +329,32 @@ class GestureController:
             # 只在指点姿势时控制鼠标
             if not self.is_pointing:
                 self.prev_finger_pos = None  # 重置指尖位置
+                # 重置卡尔曼滤波器
+                self.kalman_x = KalmanFilter(
+                    process_variance=self.config["kalman_process_variance"],
+                    measurement_variance=self.config["kalman_measurement_variance"]
+                )
+                self.kalman_y = KalmanFilter(
+                    process_variance=self.config["kalman_process_variance"],
+                    measurement_variance=self.config["kalman_measurement_variance"]
+                )
                 return
                 
-            # 获取当前指尖位置
+            # 获取当前指尖位置和手部大小
             index_tip = hand_landmarks.landmark[8]  # 食指指尖
             current_finger_pos = (index_tip.x, index_tip.y)
+            hand_size = self._get_hand_size(hand_landmarks)
             
             # 检测是否刚切换到指点姿势
             if not self.prev_is_pointing and self.is_pointing:
                 self.prev_finger_pos = current_finger_pos  # 初始化上一帧位置
                 try:
-                    pyautogui.click()
-                    if self.on_gesture_detected:
-                        self.on_gesture_detected("鼠标点击")
+                    # 获取当前鼠标位置，确保在安全区域内
+                    x, y = pyautogui.position()
+                    if self._is_safe_position(x, y):
+                        pyautogui.click()
+                        if self.on_gesture_detected:
+                            self.on_gesture_detected("鼠标点击")
                 except Exception as e:
                     print(f"点击鼠标时出错: {e}")
                 return
@@ -295,38 +366,45 @@ class GestureController:
             # 如果有上一帧的位置，计算移动
             if self.prev_finger_pos is not None:
                 try:
-                    # 计算指尖移动的相对距离
-                    dx = current_finger_pos[0] - self.prev_finger_pos[0]
-                    dy = current_finger_pos[1] - self.prev_finger_pos[1]
+                    # 计算指尖移动的相对距离（相对于手部大小）
+                    dx = (current_finger_pos[0] - self.prev_finger_pos[0]) / hand_size
+                    dy = (current_finger_pos[1] - self.prev_finger_pos[1]) / hand_size
+                    
+                    # 使用卡尔曼滤波器平滑移动
+                    filtered_dx = self.kalman_x.update(dx)
+                    filtered_dy = self.kalman_y.update(dy)
                     
                     # 检查是否超过最小移动阈值
-                    if abs(dx) > self.config["min_movement_threshold"] or abs(dy) > self.config["min_movement_threshold"]:
+                    if abs(filtered_dx) > self.config["min_movement_threshold"] or abs(filtered_dy) > self.config["min_movement_threshold"]:
                         # 获取当前鼠标位置
                         current_x, current_y = pyautogui.position()
+                        screen_width, screen_height = pyautogui.size()
+                        margin = self.config["screen_margin"]
                         
                         # 计算鼠标移动距离（应用灵敏度）
-                        # 将移动距离缩放到合适的范围（屏幕分辨率的10%）
-                        screen_width, screen_height = pyautogui.size()
-                        scale_factor = min(screen_width, screen_height) * 0.1
+                        scale_factor = min(screen_width, screen_height)
                         sensitivity = self.config["mouse_sensitivity"]
                         
-                        move_x = int(dx * scale_factor * sensitivity)
-                        move_y = int(dy * scale_factor * sensitivity)
+                        # 使用相对于手部大小的移动距离
+                        move_x = int(filtered_dx * scale_factor * sensitivity)
+                        move_y = int(filtered_dy * scale_factor * sensitivity)
                         
-                        # 限制单次移动距离
-                        max_move = 100  # 最大移动100像素
+                        # 限制单次移动距离（相对于手部大小）
+                        max_move = int(scale_factor * self.config["max_move_scale"])
                         move_x = max(min(move_x, max_move), -max_move)
                         move_y = max(min(move_y, max_move), -max_move)
                         
-                        # 计算新位置
-                        new_x = max(0, min(current_x + move_x, screen_width - 1))
-                        new_y = max(0, min(current_y + move_y, screen_height - 1))
+                        # 计算新位置，考虑安全边界
+                        new_x = max(margin, min(current_x + move_x, screen_width - margin))
+                        new_y = max(margin, min(current_y + move_y, screen_height - margin))
                         
-                        # 使用相对移动而不是绝对位置
-                        pyautogui.moveRel(move_x, move_y, duration=0.01)
+                        # 只在新位置安全时移动鼠标
+                        if self._is_safe_position(new_x, new_y):
+                            # 使用绝对位置移动，避免累积误差
+                            pyautogui.moveTo(new_x, new_y, duration=0.0)
                         
                 except Exception as e:
-                    print(f"计算鼠标移动时出错: {e}")
+                    print(f"Error Calculating Mouse Movement: {e}")
                     self.prev_finger_pos = current_finger_pos
                     return
             
@@ -335,11 +413,24 @@ class GestureController:
             self.prev_mouse_time = current_time
             
         except Exception as e:
-            print(f"鼠标控制时出错: {e}")
+            print(f"Error Handling Mouse Control: {e}")
             traceback.print_exc()
 
+    def _is_safe_position(self, x: int, y: int) -> bool:
+        """检查鼠标位置是否在安全区域内"""
+        try:
+            screen_width, screen_height = pyautogui.size()
+            margin = self.config["screen_margin"]
+            
+            # 检查是否在安全边界内
+            return (margin <= x <= screen_width - margin and 
+                   margin <= y <= screen_height - margin)
+        except Exception as e:
+            print(f"Error Checking Mouse Position: {e}")
+            return False
+
     def _detect_and_handle_gestures(self, hand_landmarks):
-        """检测和处理手势"""
+        """检测和处理"""
         current_time = time.time()
         
         # 检查冷却时间
@@ -361,7 +452,7 @@ class GestureController:
                 )
                 
                 if similarity > self.config["similarity_threshold"]:
-                    print(f"检测到自定义手势: {name}, 相似度: {similarity:.2f}")
+                    print(f"Detected Custom Gesture: {name}, Similarity: {similarity:.2f}")
                     # 触发自定义手势动作
                     self._trigger_custom_gesture(name)
                     self.prev_gesture_time = current_time
@@ -400,25 +491,55 @@ class GestureController:
         if not self.prev_hand_landmarks:
             return False
             
-        # 计算手掌中心点的移动
-        current_center = self._get_palm_center(hand_landmarks)
-        prev_center = self._get_palm_center(self.prev_hand_landmarks)
+        # 使用多个关键点来判断滑动
+        # 8: 食指尖, 12: 中指尖, 16: 无名指尖, 20: 小指尖
+        # 0: 手掌根部
+        key_points = [0, 8, 12, 16, 20]
         
-        dx = current_center[0] - prev_center[0]
-        dy = current_center[1] - prev_center[1]
+        # 计算所有关键点的平均移动
+        total_dx = 0
+        total_dy = 0
+        count = 0
+        
+        for point_id in key_points:
+            curr_point = hand_landmarks.landmark[point_id]
+            prev_point = self.prev_hand_landmarks.landmark[point_id]
+            
+            dx = curr_point.x - prev_point.x
+            dy = curr_point.y - prev_point.y
+            
+            total_dx += dx
+            total_dy += dy
+            count += 1
+        
+        # 计算平均移动
+        avg_dx = total_dx / count
+        avg_dy = total_dy / count
         
         # 判断滑动方向
         threshold = self.config["swipe_threshold"]
-        if abs(dx) > threshold or abs(dy) > threshold:
-            if abs(dx) > abs(dy):
-                if dx > 0:
+        
+        # 计算移动距离
+        movement = np.sqrt(avg_dx * avg_dx + avg_dy * avg_dy)
+        
+        # 如果移动距离超过阈值
+        if movement > threshold:
+            # 判断主要移动方向
+            if abs(avg_dx) > abs(avg_dy):
+                # 水平移动
+                if avg_dx > 0:
+                    print("Detected Right Swipe Gesture")
                     self._trigger_action(GestureType.SWIPE_RIGHT)
                 else:
+                    print("Detected Left Swipe Gesture")
                     self._trigger_action(GestureType.SWIPE_LEFT)
             else:
-                if dy > 0:
+                # 垂直移动
+                if avg_dy > 0:
+                    print("Detected Down Swipe Gesture")
                     self._trigger_action(GestureType.SWIPE_DOWN)
                 else:
+                    print("Detected Up Swipe Gesture")
                     self._trigger_action(GestureType.SWIPE_UP)
             return True
             
@@ -492,22 +613,26 @@ class GestureController:
         if gesture_type in self.gesture_actions:
             action = self.gesture_actions[gesture_type]
             
-            for key in action.keys:
-                try:
-                    if action.is_mouse:
-                        # 处理鼠标操作
-                        if key == "click":
-                            pyautogui.click()
-                        elif key == "rightclick":
-                            pyautogui.rightClick()
-                        elif key == "doubleclick":
-                            pyautogui.doubleClick()
-                        # 可以添加更多鼠标操作...
-                    else:
-                        # 处理键盘操作
-                        keyboard.press_and_release(key)
-                except Exception as e:
-                    print(f"执行动作时出错: {e}")
+            try:
+                if action.is_mouse:
+                    # 处理鼠标操作
+                    if action.keys[0] == "click":
+                        pyautogui.click()
+                    elif action.keys[0] == "rightclick":
+                        pyautogui.rightClick()
+                    elif action.keys[0] == "doubleclick":
+                        pyautogui.doubleClick()
+                else:
+                    # 同时按下所有按键
+                    for key in action.keys:
+                        keyboard.press(key)
+                    # 短暂延迟以确保按键被识别
+                    time.sleep(0.1)
+                    # 同时释放所有按键
+                    for key in action.keys:
+                        keyboard.release(key)
+            except Exception as e:
+                print(f"Error Executing Action: {e}")
             
             if self.on_gesture_detected:
                 self.on_gesture_detected(f"{action.description} {','.join(action.keys)}")
@@ -516,59 +641,132 @@ class GestureController:
         """触发自定义手势动作"""
         try:
             if gesture_name not in self.custom_gestures:
-                print(f"未找到自定义手势: {gesture_name}")
+                print(f"Custom Gesture Not Found: {gesture_name}")
                 return
                 
             landmarks, keys = self.custom_gestures[gesture_name]
             if not keys:
-                print(f"自定义手势 '{gesture_name}' 没有设置按键")
+                print(f"Custom Gesture '{gesture_name}' has no keys set")
                 return
                 
-            print(f"触发自定义手势 '{gesture_name}' 的按键: {keys}")
-            for key in keys:
-                try:
-                    # 检查是否是鼠标操作
-                    if key in ["click", "rightclick", "doubleclick"]:
-                        if key == "click":
-                            pyautogui.click()
-                        elif key == "rightclick":
-                            pyautogui.rightClick()
-                        elif key == "doubleclick":
-                            pyautogui.doubleClick()
-                    else:
-                        keyboard.press_and_release(key)
-                    print(f"执行操作: {key}")
-                except Exception as e:
-                    print(f"执行操作 {key} 时出错: {e}")
+            print(f"Triggering Custom Gesture '{gesture_name}' with keys: {keys}")
+            try:
+                # 检查是否是鼠标操作
+                if keys[0] in ["click", "rightclick", "doubleclick"]:
+                    if keys[0] == "click":
+                        pyautogui.click()
+                    elif keys[0] == "rightclick":
+                        pyautogui.rightClick()
+                    elif keys[0] == "doubleclick":
+                        pyautogui.doubleClick()
+                else:
+                    # 同时按下所有按键
+                    for key in keys:
+                        keyboard.press(key)
+                    # 短暂延迟以确保按键被识别
+                    time.sleep(0.1)
+                    # 同时释放所有按键
+                    for key in keys:
+                        keyboard.release(key)
+                print(f"Executing Action: {keys}")
+            except Exception as e:
+                print(f"Error Executing Action: {e}")
             
             if self.on_gesture_detected:
-                self.on_gesture_detected(f"自定义手势: {gesture_name} ({','.join(keys)})")
+                self.on_gesture_detected(f"Custom Gesture: {gesture_name} ({','.join(keys)})")
                 
         except Exception as e:
-            print(f"触发自定义手势时出错: {e}")
+            print(f"Error Triggering Custom Gesture: {e}")
             traceback.print_exc()
 
     def add_custom_gesture(self, name: str, landmarks: List[Tuple[float, float]], keys: List[str] = None):
-        """添加自定义手势"""
+        """添加自定义手势并保存"""
         if keys is None:
             keys = []
         self.custom_gestures[name] = (landmarks, keys)
+        self.save_custom_gestures()
 
     def update_custom_gesture_keys(self, name: str, keys: List[str]):
-        """更新自定义手势的按键组合"""
+        """更新自定义手势的按键组合并保存"""
         if name in self.custom_gestures:
             landmarks, _ = self.custom_gestures[name]
             self.custom_gestures[name] = (landmarks, keys)
+            self.save_custom_gestures()
 
-    def get_custom_gesture_keys(self, name: str) -> List[str]:
-        """获取自定义手势的按键组合"""
+    def remove_custom_gesture(self, name: str):
+        """删除自定义手势并保存"""
         if name in self.custom_gestures:
-            return self.custom_gestures[name][1]
-        return []
+            del self.custom_gestures[name]
+            self.save_custom_gestures()
+
+    def reset_to_default(self):
+        """重置所有设置为默认值"""
+        self.config = self.default_config.copy()
+        self.save_config()
+        self.custom_gestures.clear()
+        self.save_custom_gestures()
+
+    def load_config(self) -> dict:
+        """从文件加载配置"""
+        try:
+            if self.config_file.exists():
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    loaded_config = json.load(f)
+                    # 合并加载的配置和默认配置，确保所有必要的配置项都存在
+                    config = self.default_config.copy()
+                    config.update(loaded_config)
+                    return config
+        except Exception as e:
+            print(f"Error Loading Config File: {e}")
+        return self.default_config.copy()
+
+    def save_config(self):
+        """保存配置到文件"""
+        try:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, indent=4, ensure_ascii=False)
+            print("Config Saved")
+        except Exception as e:
+            print(f"Error Saving Config File: {e}")
+
+    def load_custom_gestures(self) -> Dict[str, Tuple[List[Tuple[float, float]], List[str]]]:
+        """从文件加载自定义手势"""
+        try:
+            if self.gestures_file.exists():
+                with open(self.gestures_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    # 将加载的数据转换为正确的格式
+                    gestures = {}
+                    for name, gesture_data in data.items():
+                        landmarks = [tuple(point) for point in gesture_data['landmarks']]
+                        keys = gesture_data['keys']
+                        gestures[name] = (landmarks, keys)
+                    return gestures
+        except Exception as e:
+            print(f"Error Loading Custom Gesture File: {e}")
+        return {}
+
+    def save_custom_gestures(self):
+        """保存自定义手势到文件"""
+        try:
+            # 将手势数据转换为可序列化的格式
+            data = {}
+            for name, (landmarks, keys) in self.custom_gestures.items():
+                data[name] = {
+                    'landmarks': [list(point) for point in landmarks],
+                    'keys': keys
+                }
+            
+            with open(self.gestures_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+            print("Custom Gestures Saved")
+        except Exception as e:
+            print(f"Error Saving Custom Gesture File: {e}")
 
     def update_config(self, config: dict):
-        """更新配置参数"""
+        """更新配置参数并保存"""
         self.config.update(config)
+        self.save_config()
 
     def toggle_mouse_control(self, enabled: bool):
         """切换鼠标控制模式"""
