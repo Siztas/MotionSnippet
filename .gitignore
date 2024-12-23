@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+*.pyd
+*.pyw
+
+.vscode/
+.idea/
