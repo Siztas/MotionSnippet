@@ -229,44 +229,44 @@ class GestureController:
             GestureType.POINT: GestureAction(
                 GestureType.POINT,
                 ["click"],
-                "指点",
+                "Point",
                 is_mouse=True
             ),
             GestureType.TWO_FINGER_POINT: GestureAction(
                 GestureType.TWO_FINGER_POINT,
                 ["rightclick"],
-                "双指点击",
+                "Double Click",
                 is_mouse=True
             ),
             GestureType.THREE_FINGER_POINT: GestureAction(
                 GestureType.THREE_FINGER_POINT,
                 ["tab"],
-                "三指点击"
+                "Three Finger Click"
             ),
             GestureType.PINCH: GestureAction(
                 GestureType.PINCH,
                 ["win", "tab"],
-                "捏合"
+                "Pinch"
             ),
             GestureType.SWIPE_LEFT: GestureAction(
                 GestureType.SWIPE_LEFT,
                 ["left"],
-                "左滑"
+                "Swipe Left"
             ),
             GestureType.SWIPE_RIGHT: GestureAction(
                 GestureType.SWIPE_RIGHT,
                 ["right"],
-                "右滑"
+                "Swipe Right"
             ),
             GestureType.SWIPE_UP: GestureAction(
                 GestureType.SWIPE_UP,
                 ["pageup"],
-                "上滑"
+                "Swipe Up"
             ),
             GestureType.SWIPE_DOWN: GestureAction(
                 GestureType.SWIPE_DOWN,
                 ["pagedown"],
-                "下滑"
+                "Swipe Down"
             )
         }
         
@@ -337,7 +337,7 @@ class GestureController:
             print("Initializing Camera...")
             self.cap = cv2.VideoCapture(0)
             if not self.cap.isOpened():
-                raise RuntimeError("无法打开摄像头")
+                raise RuntimeError("Can't open camera")
             
             print("Initializing MediaPipe...")
             self.hands = self.mp_hands.Hands(
@@ -653,7 +653,7 @@ class GestureController:
             
             # 如果缓冲区达到最小帧数，进行手势识别
             if len(self.gesture_buffer) >= self.config["min_frames_for_gesture"]:
-                # 将缓冲区数据转换为numpy数组
+
                 gesture_sequence = np.array(self.gesture_buffer)
                 
                 # 与所有已保存的手势比较
@@ -669,22 +669,22 @@ class GestureController:
                         similarity = self.procrustes_matcher.compute_similarity(
                             gesture_sequence,
                             template_sequence,
-                            temporal_weight=0.5  # 降低时序权重，更注重形状匹配
+                            temporal_weight=0.5
                         )
                         
-                        print(f"手势 '{name}' 的相似度: {similarity:.2f}")  # 添加调试输出
+                        print(f"Gesture '{name}' similarity: {similarity:.2f}")
                         
                         if similarity > best_similarity:
                             best_similarity = similarity
                             best_match = name
                             
                     except Exception as e:
-                        print(f"计算手势 '{name}' 的相似度时出错: {e}")
+                        print(f"Error calculating similarity for gesture '{name}': {e}")
                         continue
                 
                 # 如果找到匹配的手势
                 if best_match and best_similarity > self.config["similarity_threshold"]:
-                    print(f"检测到自定义手势: {best_match}, 相似度: {best_similarity:.2f}")
+                    print(f"Detected custom gesture: {best_match}, similarity: {best_similarity:.2f}")
                     # 触发自定义手势动作
                     self._trigger_custom_gesture(best_match)
                     self.prev_gesture_time = current_time
@@ -758,18 +758,18 @@ class GestureController:
             if abs(avg_dx) > abs(avg_dy) * 1.5:  # 增加水平判定的权重
                 # 水平移动
                 if avg_dx > 0:
-                    print("检测到右滑手势")
+                    print("Swipe Right")
                     self._trigger_action(GestureType.SWIPE_RIGHT)
                 else:
-                    print("检测到左滑手势")
+                    print("Swipe Left")
                     self._trigger_action(GestureType.SWIPE_LEFT)
             elif abs(avg_dy) > abs(avg_dx):
                 # 垂直移动
                 if avg_dy > 0:
-                    print("检测到下滑手势")
+                    print("Swipe Down")
                     self._trigger_action(GestureType.SWIPE_DOWN)
                 else:
-                    print("检测到上滑手势")
+                    print("Swipe Up")
                     self._trigger_action(GestureType.SWIPE_UP)
             return True
             
@@ -810,7 +810,7 @@ class GestureController:
         landmarks2: List[Tuple[float, float]]
     ) -> float:
         """计算两个手势的相似度（使用Procrustes分析）"""
-        # 转换为numpy数组
+
         landmarks1 = np.array(landmarks1)
         landmarks2 = np.array(landmarks2)
         
@@ -961,7 +961,6 @@ class GestureController:
             if self.gestures_file.exists():
                 with open(self.gestures_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    # 将加载的数据转换为正确的格式
                     gestures = {}
                     for name, gesture_data in data.items():
                         landmarks = [tuple(point) for point in gesture_data['landmarks']]

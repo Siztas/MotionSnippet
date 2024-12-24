@@ -238,7 +238,7 @@ class SettingsDialog(ctk.CTkToplevel):
             # 直接更新手势控制器的配置
             self.gesture_controller.update_config({"mouse_sensitivity": sensitivity})
         except Exception as e:
-            print(f"更新鼠标灵敏度时出错: {e}")
+            print(f"Error updating mouse sensitivity: {e}")
 
     def create_button_area(self):
         """创建按钮区域"""
@@ -378,7 +378,7 @@ class SettingsDialog(ctk.CTkToplevel):
                         new_config["camera_resolution"] = new_resolution
                         need_restart = True
                 except (ValueError, AttributeError) as e:
-                    print(f"解析分辨率时出错: {e}")
+                    print(f"Error parsing resolution: {e}")
             
             # 4. 处理显示器设置
             display = self.display_var.get()
@@ -391,7 +391,7 @@ class SettingsDialog(ctk.CTkToplevel):
                            self.gesture_controller.config["display_index"] != display_index:
                             new_config["display_index"] = display_index
                 except (ValueError, IndexError) as e:
-                    print(f"解析显示器索引时出错: {e}")
+                    print(f"Error parsing display index: {e}")
             
             # 5. 更新配置（除了鼠标灵敏度）
             if new_config:

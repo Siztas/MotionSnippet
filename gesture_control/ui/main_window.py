@@ -13,7 +13,7 @@ class MainWindow(ctk.CTk):
         self.gesture_controller = gesture_controller
         
         # 设置窗口属性
-        self.title("Gesture Control")
+        self.title("MotionSnippet")
         self.geometry("1200x800")
         
         # 创建UI组件
@@ -66,7 +66,7 @@ class MainWindow(ctk.CTk):
         # 启动/停止按钮
         self.start_button = ctk.CTkButton(
             control_frame,
-            text="启动",
+            text="Start",
             command=self.toggle_gesture_control
         )
         self.start_button.pack(side="left", padx=5)

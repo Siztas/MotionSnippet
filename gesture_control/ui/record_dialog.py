@@ -109,7 +109,7 @@ class RecordDialog(ctk.CTkToplevel):
             
     def start_recording(self):
         """开始录制"""
-        print("开始录制手势...")
+        print("Start recording gesture...")
         self.is_recording = True
         self.start_time = time.time()
         self.recorded_landmarks = []
@@ -131,7 +131,7 @@ class RecordDialog(ctk.CTkToplevel):
         
     def stop_recording(self):
         """停止录制"""
-        print("停止录制手势...")
+        print("Stop recording gesture...")
         self.is_recording = False
         self.gesture_controller.set_gesture_record_callback(None)
         
@@ -179,11 +179,10 @@ class RecordDialog(ctk.CTkToplevel):
         if not self.recorded_landmarks:
             return []
             
-        # 将所有帧的数据转换为numpy数组
         all_frames = np.array(self.recorded_landmarks)
         # 计算平均值
         avg_landmarks = np.mean(all_frames, axis=0)
-        # 转换回元组列表
+        
         return [tuple(point) for point in avg_landmarks]
         
     def cancel(self):
