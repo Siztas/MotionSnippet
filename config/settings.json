@@ -1,10 +1,10 @@
 {
-    "mouse_sensitivity": 1.2,
+    "mouse_sensitivity": 0.5999999999999996,
     "gesture_threshold": 0.8,
     "smoothing_factor": 0.5,
     "gesture_cooldown": 1.05,
     "mouse_update_interval": 0.016,
-    "swipe_threshold": 0.06,
+    "swipe_threshold": 0.04999999999999999,
     "similarity_threshold": 0.85,
     "recording_duration": 3.0,
     "min_movement_threshold": 0.0005000000000000004,
@@ -12,10 +12,12 @@
     "kalman_measurement_variance": 0.01,
     "max_move_scale": 0.2,
     "screen_margin": 5,
+    "gesture_buffer_size": 15,
+    "min_frames_for_gesture": 5,
     "camera_index": 0,
     "camera_resolution": [
         640,
         480
     ],
-    "display_index": 1
+    "display_index": 0
 }

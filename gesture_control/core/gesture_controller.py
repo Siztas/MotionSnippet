@@ -8,6 +8,7 @@ import time
 from threading import Thread, Event
 from typing import Dict, List, Tuple, Optional, Callable
 from dataclasses import dataclass
+from scipy.linalg import orthogonal_procrustes
 from enum import Enum
 import traceback
 import threading
@@ -17,6 +18,9 @@ from pathlib import Path
 
 class GestureType(Enum):
     POINT = "point"
+    TWO_FINGER_POINT = "two_finger_point"
+    THREE_FINGER_POINT = "three_finger_point"
+    PINCH = "pinch"
     SWIPE_LEFT = "swipe_left"
     SWIPE_RIGHT = "swipe_right"
     SWIPE_UP = "swipe_up"
@@ -48,6 +52,154 @@ class KalmanFilter:
         self.estimate_error = (1 - kalman_gain) * prediction_error
         
         return self.estimate
+    
+class ProcrustesTemporalMatcher:
+    def __init__(self):
+        self.window_size = None  # DTW窗口大小
+        self.reference_scale = None  # 参考尺度
+        
+    def procrustes_distance(self, shape1: np.ndarray, shape2: np.ndarray) -> float:
+        """计算两个形状之间的Procrustes距离"""
+        # 中心化
+        shape1_centered = shape1 - np.mean(shape1, axis=0)
+        shape2_centered = shape2 - np.mean(shape2, axis=0)
+        
+        # 归一化尺度
+        scale1 = np.sqrt(np.sum(shape1_centered ** 2))
+        scale2 = np.sqrt(np.sum(shape2_centered ** 2))
+        shape1_normalized = shape1_centered / scale1
+        shape2_normalized = shape2_centered / scale2
+        
+        # 计算最优旋转矩阵
+        R, _ = orthogonal_procrustes(shape1_normalized, shape2_normalized)
+        
+        # 应用旋转
+        shape2_aligned = shape2_normalized @ R
+        
+        # 计算距离
+        return np.mean(np.sqrt(np.sum((shape1_normalized - shape2_aligned) ** 2, axis=1)))
+    
+    def dtw_procrustes(self, seq1: np.ndarray, seq2: np.ndarray) -> float:
+        """使用Procrustes分析的DTW算法"""
+        n, m = len(seq1), len(seq2)
+        
+        # 初始化DTW矩阵
+        dtw_matrix = np.full((n + 1, m + 1), np.inf)
+        dtw_matrix[0, 0] = 0
+        
+        # 计算窗口大小
+        if self.window_size is None:
+            self.window_size = int(max(n, m) * 0.1)  # 默认为序列长度的10%
+        
+        # 填充DTW矩阵
+        for i in range(1, n + 1):
+            # 定义Sakoe-Chiba带
+            window_start = max(1, i - self.window_size)
+            window_end = min(m + 1, i + self.window_size + 1)
+            
+            for j in range(window_start, window_end):
+                # 使用Procrustes距离作为帧间距离
+                cost = self.procrustes_distance(
+                    seq1[i-1],  # 当前帧的骨架点
+                    seq2[j-1]   # 当前帧的骨架点
+                )
+                
+                # 动态规划更新
+                dtw_matrix[i, j] = cost + min(
+                    dtw_matrix[i-1, j],    # 插入
+                    dtw_matrix[i, j-1],    # 删除
+                    dtw_matrix[i-1, j-1]   # 匹配
+                )
+        
+        return dtw_matrix[n, m]
+    
+    def get_alignment_path(self, seq1: np.ndarray, seq2: np.ndarray) -> list:
+        """获取最优对齐路径"""
+        n, m = len(seq1), len(seq2)
+        dtw_matrix = np.full((n + 1, m + 1), np.inf)
+        dtw_matrix[0, 0] = 0
+        
+        # 记录路径
+        path_matrix = np.zeros((n + 1, m + 1, 2), dtype=int)
+        
+        # 填充DTW矩阵并记录路径
+        for i in range(1, n + 1):
+            window_start = max(1, i - self.window_size)
+            window_end = min(m + 1, i + self.window_size + 1)
+            
+            for j in range(window_start, window_end):
+                cost = self.procrustes_distance(seq1[i-1], seq2[j-1])
+                
+                # 找到最小代价路径
+                candidates = [
+                    (dtw_matrix[i-1, j], (i-1, j)),
+                    (dtw_matrix[i, j-1], (i, j-1)),
+                    (dtw_matrix[i-1, j-1], (i-1, j-1))
+                ]
+                min_cost, min_path = min(candidates, key=lambda x: x[0])
+                
+                dtw_matrix[i, j] = cost + min_cost
+                path_matrix[i, j] = min_path
+        
+        # 回溯找到对齐路径
+        path = []
+        current = (n, m)
+        while current != (0, 0):
+            path.append(current)
+            current = tuple(path_matrix[current])
+        
+        return path[::-1]
+    
+    def align_sequences(self, seq1: np.ndarray, seq2: np.ndarray) -> tuple:
+        """对齐两个序列"""
+        path = self.get_alignment_path(seq1, seq2)
+        
+        # 创建对齐后的序列
+        aligned_seq1 = []
+        aligned_seq2 = []
+        
+        for i, j in path:
+            if i > 0 and j > 0:
+                aligned_seq1.append(seq1[i-1])
+                aligned_seq2.append(seq2[j-1])
+        
+        return np.array(aligned_seq1), np.array(aligned_seq2)
+    
+    def compute_similarity(self, seq1: np.ndarray, seq2: np.ndarray, 
+                         temporal_weight: float = 0.5) -> float:
+        """计算综合相似度"""
+        # 计算DTW-Procrustes距离
+        dtw_distance = self.dtw_procrustes(seq1, seq2)
+        
+        # 获取对齐后的序列
+        aligned_seq1, aligned_seq2 = self.align_sequences(seq1, seq2)
+        
+        # 计算时序相关性
+        temporal_correlation = self._compute_temporal_correlation(
+            aligned_seq1, 
+            aligned_seq2
+        )
+        
+        # 综合评分
+        similarity = (1 - temporal_weight) * (1 / (1 + dtw_distance)) + \
+                    temporal_weight * temporal_correlation
+                    
+        return similarity
+    
+    def _compute_temporal_correlation(self, seq1: np.ndarray, seq2: np.ndarray) -> float:
+        """计算时序相关性"""
+        # 计算速度序列
+        vel1 = np.diff(seq1, axis=0)
+        vel2 = np.diff(seq2, axis=0)
+        
+        # 计算相关系数
+        correlation = np.mean([
+            np.corrcoef(vel1[:, i], vel2[:, i])[0, 1]
+            for i in range(vel1.shape[1])
+            if not np.isnan(np.corrcoef(vel1[:, i], vel2[:, i])[0, 1])
+        ])
+        
+        return (correlation + 1) / 2  # 归一化到[0,1]区间
 
 class GestureController:
     def __init__(self):
@@ -77,28 +229,44 @@ class GestureController:
             GestureType.POINT: GestureAction(
                 GestureType.POINT,
                 ["click"],
-                "Point",
-                is_mouse=True  # 标记为鼠标操作
+                "指点",
+                is_mouse=True
+            ),
+            GestureType.TWO_FINGER_POINT: GestureAction(
+                GestureType.TWO_FINGER_POINT,
+                ["rightclick"],
+                "双指点击",
+                is_mouse=True
+            ),
+            GestureType.THREE_FINGER_POINT: GestureAction(
+                GestureType.THREE_FINGER_POINT,
+                ["tab"],
+                "三指点击"
+            ),
+            GestureType.PINCH: GestureAction(
+                GestureType.PINCH,
+                ["win", "tab"],
+                "捏合"
             ),
             GestureType.SWIPE_LEFT: GestureAction(
                 GestureType.SWIPE_LEFT,
                 ["left"],
-                "Swipe Left"
+                "左滑"
             ),
             GestureType.SWIPE_RIGHT: GestureAction(
                 GestureType.SWIPE_RIGHT,
                 ["right"],
-                "Swipe Right"
+                "右滑"
             ),
             GestureType.SWIPE_UP: GestureAction(
                 GestureType.SWIPE_UP,
-                ["up"],
-                "Swipe Up"
+                ["pageup"],
+                "上滑"
             ),
             GestureType.SWIPE_DOWN: GestureAction(
                 GestureType.SWIPE_DOWN,
-                ["down"],
-                "Swipe Down"
+                ["pagedown"],
+                "下滑"
             )
         }
         
@@ -113,6 +281,8 @@ class GestureController:
         # 添加卡尔曼滤波器
         self.kalman_x = KalmanFilter()
         self.kalman_y = KalmanFilter()
+
+        self.procrustes_matcher = ProcrustesTemporalMatcher()
         
         # 配置文件路径
         self.config_dir = Path("config")
@@ -127,16 +297,18 @@ class GestureController:
             "mouse_sensitivity": 2.5,
             "gesture_threshold": 0.8,
             "smoothing_factor": 0.5,
-            "gesture_cooldown": 0.5,
+            "gesture_cooldown": 1.0,  # 设置1秒冷却时间
             "mouse_update_interval": 0.008,
-            "swipe_threshold": 0.05,  # 降低滑动阈值
-            "similarity_threshold": 0.85,
+            "swipe_threshold": 0.03,  # 降低滑动阈值
+            "similarity_threshold": 0.65,
             "recording_duration": 3.0,
             "min_movement_threshold": 0.0005,
             "kalman_process_variance": 1e-4,
             "kalman_measurement_variance": 1e-2,
             "max_move_scale": 0.2,
-            "screen_margin": 5
+            "screen_margin": 5,
+            "gesture_buffer_size": 15,
+            "min_frames_for_gesture": 5
         }
         
         # 加载配置
@@ -366,7 +538,7 @@ class GestureController:
             # 如果有上一帧的位置，计算移动
             if self.prev_finger_pos is not None:
                 try:
-                    # 计算指尖移动的相对距离（相对于手部大小）
+                    # 计算指尖移动的相对��离（相对于手部大小）
                     dx = (current_finger_pos[0] - self.prev_finger_pos[0]) / hand_size
                     dy = (current_finger_pos[1] - self.prev_finger_pos[1]) / hand_size
                     
@@ -430,41 +602,100 @@ class GestureController:
             return False
 
     def _detect_and_handle_gestures(self, hand_landmarks):
-        """检测和处理"""
+        """检测和处理手势"""
         current_time = time.time()
         
         # 检查冷却时间
         if current_time - self.prev_gesture_time < self.config["gesture_cooldown"]:
             return
             
-        # 首先检测自定义手势
-        if self.custom_gestures:
-            # 提取当前手势的关键点
-            current_landmarks = []
-            for landmark in hand_landmarks.landmark:
-                current_landmarks.append((landmark.x, landmark.y))
-                
-            # 与所有已保存的手势比较
-            for name, (template_landmarks, keys) in self.custom_gestures.items():
-                similarity = self._calculate_gesture_similarity(
-                    current_landmarks,
-                    template_landmarks
-                )
-                
-                if similarity > self.config["similarity_threshold"]:
-                    print(f"Detected Custom Gesture: {name}, Similarity: {similarity:.2f}")
-                    # 触发自定义手势动作
-                    self._trigger_custom_gesture(name)
-                    self.prev_gesture_time = current_time
-                    return  # 识别到自定义手势就返回，不再检测基本手势
-        
-        # 如果没有识别到自定义手势，则检测基本手势
+        # 首先检测基本手势
+        if self._is_pinch_gesture(hand_landmarks):
+            self._trigger_action(GestureType.PINCH)
+            self.prev_gesture_time = current_time
+            return
+            
+        if self._is_three_finger_point_gesture(hand_landmarks):
+            self._trigger_action(GestureType.THREE_FINGER_POINT)
+            self.prev_gesture_time = current_time
+            return
+            
+        if self._is_two_finger_point_gesture(hand_landmarks):
+            self._trigger_action(GestureType.TWO_FINGER_POINT)
+            self.prev_gesture_time = current_time
+            return
+            
         if self._is_pointing_gesture(hand_landmarks):
             self._trigger_action(GestureType.POINT)
             self.prev_gesture_time = current_time
-        elif self._is_swipe_gesture(hand_landmarks):
+            return
+            
+        if self._is_swipe_gesture(hand_landmarks):
             self.prev_gesture_time = current_time
-
+            return
+            
+        # 然后检测自定义手势
+        if self.custom_gestures:
+            # 提取当前手势的关键点序列
+            current_landmarks = []
+            for landmark in hand_landmarks.landmark:
+                current_landmarks.append((landmark.x, landmark.y))
+            
+            # 将当前帧添加到缓冲区
+            if not hasattr(self, 'gesture_buffer'):
+                self.gesture_buffer = []
+            self.gesture_buffer.append(current_landmarks)
+            
+            # 保持缓冲区大小固定
+            buffer_size = self.config["gesture_buffer_size"]
+            if len(self.gesture_buffer) > buffer_size:
+                self.gesture_buffer = self.gesture_buffer[-buffer_size:]
+            
+            # 如果缓冲区达到最小帧数，进行手势识别
+            if len(self.gesture_buffer) >= self.config["min_frames_for_gesture"]:
+                # 将缓冲区数据转换为numpy数组
+                gesture_sequence = np.array(self.gesture_buffer)
+                
+                # 与所有已保存的手势比较
+                best_match = None
+                best_similarity = 0
+                
+                for name, (template_landmarks, keys) in self.custom_gestures.items():
+                    try:
+                        # 将模板转换为序列形式
+                        template_sequence = np.array([template_landmarks] * len(gesture_sequence))
+                        
+                        # 计算相似度
+                        similarity = self.procrustes_matcher.compute_similarity(
+                            gesture_sequence,
+                            template_sequence,
+                            temporal_weight=0.5  # 降低时序权重，更注重形状匹配
+                        )
+                        
+                        print(f"手势 '{name}' 的相似度: {similarity:.2f}")  # 添加调试输出
+                        
+                        if similarity > best_similarity:
+                            best_similarity = similarity
+                            best_match = name
+                            
+                    except Exception as e:
+                        print(f"计算手势 '{name}' 的相似度时出错: {e}")
+                        continue
+                
+                # 如果找到匹配的手势
+                if best_match and best_similarity > self.config["similarity_threshold"]:
+                    print(f"检测到自定义手势: {best_match}, 相似度: {best_similarity:.2f}")
+                    # 触发自定义手势动作
+                    self._trigger_custom_gesture(best_match)
+                    self.prev_gesture_time = current_time
+                    # 清空缓冲区
+                    self.gesture_buffer.clear()
+                    return
+                
+                # 如果缓冲区太大但没有匹配，清除一半的旧数据
+                if len(self.gesture_buffer) >= buffer_size:
+                    self.gesture_buffer = self.gesture_buffer[buffer_size//2:]
+        
     def _is_pointing_gesture(self, hand_landmarks) -> bool:
         """检测指点手势"""
         # 食指伸直，其他手指弯曲
@@ -492,9 +723,8 @@ class GestureController:
             return False
             
         # 使用多个关键点来判断滑动
-        # 8: 食指尖, 12: 中指尖, 16: 无名指尖, 20: 小指尖
-        # 0: 手掌根部
-        key_points = [0, 8, 12, 16, 20]
+        # 8: 食指尖, 12: 中指尖, 0: 手掌根部
+        key_points = [0, 8, 12]
         
         # 计算所有关键点的平均移动
         total_dx = 0
@@ -525,21 +755,21 @@ class GestureController:
         # 如果移动距离超过阈值
         if movement > threshold:
             # 判断主要移动方向
-            if abs(avg_dx) > abs(avg_dy):
+            if abs(avg_dx) > abs(avg_dy) * 1.5:  # 增加水平判定的权重
                 # 水平移动
                 if avg_dx > 0:
-                    print("Detected Right Swipe Gesture")
+                    print("检测到右滑手势")
                     self._trigger_action(GestureType.SWIPE_RIGHT)
                 else:
-                    print("Detected Left Swipe Gesture")
+                    print("检测到左滑手势")
                     self._trigger_action(GestureType.SWIPE_LEFT)
-            else:
+            elif abs(avg_dy) > abs(avg_dx):
                 # 垂直移动
                 if avg_dy > 0:
-                    print("Detected Down Swipe Gesture")
+                    print("检测到下滑手势")
                     self._trigger_action(GestureType.SWIPE_DOWN)
                 else:
-                    print("Detected Up Swipe Gesture")
+                    print("检测到上滑手势")
                     self._trigger_action(GestureType.SWIPE_UP)
             return True
             
@@ -579,8 +809,8 @@ class GestureController:
         landmarks1: List[Tuple[float, float]],
         landmarks2: List[Tuple[float, float]]
     ) -> float:
-        """计算两个手势的相似度"""
-        # 使用欧氏距离计算相似度
+        """计算两个手势的相似度（使用Procrustes分析）"""
+        # 转换为numpy数组
         landmarks1 = np.array(landmarks1)
         landmarks2 = np.array(landmarks2)
         
@@ -588,21 +818,17 @@ class GestureController:
         landmarks1 = self._normalize_landmarks(landmarks1)
         landmarks2 = self._normalize_landmarks(landmarks2)
         
-        # 计算距离
-        distance = np.mean(np.sqrt(np.sum((landmarks1 - landmarks2) ** 2, axis=1)))
-        
-        # 转换为相似度分数（0-1之间）
-        similarity = 1 / (1 + distance)
-        return similarity
+        # 使用Procrustes分析计算相似度
+        return self.procrustes_matcher.procrustes_distance(landmarks1, landmarks2)
 
     def _normalize_landmarks(self, landmarks: np.ndarray) -> np.ndarray:
         """归一化手势关键点"""
-        # 移除平移
+        # 移除平移（中心化）
         center = np.mean(landmarks, axis=0)
         landmarks = landmarks - center
         
         # 缩放到单位大小
-        scale = np.max(np.abs(landmarks))
+        scale = np.sqrt(np.sum(landmarks ** 2))
         if scale > 0:
             landmarks = landmarks / scale
             
@@ -775,3 +1001,66 @@ class GestureController:
     def set_gesture_record_callback(self, callback: Optional[Callable[[List[Tuple[float, float]]], None]]):
         """设置手势录制回调"""
         self.on_gesture_record = callback
+
+    def _is_pinch_gesture(self, hand_landmarks) -> bool:
+        """检测捏合手势"""
+        # 获取所有指尖和指根的关键点
+        thumb_tip = hand_landmarks.landmark[4]  # 拇指尖
+        index_tip = hand_landmarks.landmark[8]  # 食指尖
+        middle_tip = hand_landmarks.landmark[12]  # 中指尖
+        ring_tip = hand_landmarks.landmark[16]  # 无名指尖
+        pinky_tip = hand_landmarks.landmark[20]  # 小指尖
+        
+        # 计算所有指尖到拇指尖的距离
+        distances = []
+        for tip in [index_tip, middle_tip, ring_tip, pinky_tip]:
+            dx = tip.x - thumb_tip.x
+            dy = tip.y - thumb_tip.y
+            distance = np.sqrt(dx * dx + dy * dy)
+            distances.append(distance)
+        
+        # 如果所有距离都小于阈值，认为是捏合手势
+        return all(d < 0.1 for d in distances)
+
+    def _is_three_finger_point_gesture(self, hand_landmarks) -> bool:
+        """检测三指指点手势"""
+        # 获取指尖和指根的关键点
+        index_tip = hand_landmarks.landmark[8]  # 食指尖
+        index_pip = hand_landmarks.landmark[6]  # 食指第二关节
+        middle_tip = hand_landmarks.landmark[12]  # 中指尖
+        middle_pip = hand_landmarks.landmark[10]  # 中指第二关节
+        ring_tip = hand_landmarks.landmark[16]  # 无名指尖
+        ring_pip = hand_landmarks.landmark[14]  # 无名指第二关节
+        pinky_tip = hand_landmarks.landmark[20]  # 小指尖
+        
+        # 检查三指是否伸直
+        index_straight = index_tip.y < index_pip.y - 0.1
+        middle_straight = middle_tip.y < middle_pip.y - 0.1
+        ring_straight = ring_tip.y < ring_pip.y - 0.1
+        
+        # 检查小指是否弯曲
+        pinky_bent = pinky_tip.y > middle_pip.y
+        
+        return index_straight and middle_straight and ring_straight and pinky_bent
+
+    def _is_two_finger_point_gesture(self, hand_landmarks) -> bool:
+        """检测双指指点手势"""
+        # 获取指尖和指根的关键点
+        index_tip = hand_landmarks.landmark[8]  # 食指尖
+        index_pip = hand_landmarks.landmark[6]  # 食指第二关节
+        middle_tip = hand_landmarks.landmark[12]  # 中指尖
+        middle_pip = hand_landmarks.landmark[10]  # 中指第二关节
+        ring_tip = hand_landmarks.landmark[16]  # 无名指尖
+        pinky_tip = hand_landmarks.landmark[20]  # 小指尖
+        
+        # 检查食指和中指是否伸直
+        index_straight = index_tip.y < index_pip.y - 0.1
+        middle_straight = middle_tip.y < middle_pip.y - 0.1
+        
+        # 检查其他手指是否弯曲
+        others_bent = all([
+            ring_tip.y > middle_pip.y,
+            pinky_tip.y > middle_pip.y
+        ])
+        
+        return index_straight and middle_straight and others_bent

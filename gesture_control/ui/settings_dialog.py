@@ -110,7 +110,6 @@ class SettingsDialog(ctk.CTkToplevel):
         
         ctk.CTkLabel(resolution_frame, text="Resolution:").pack(side="left", padx=5)
         
-        # 常用分辨率列表
         resolutions = [
             "640x480",
             "800x600",

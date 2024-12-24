@@ -1,46 +1,40 @@
-# Gesture Control Pro
+# MotionSnippet
 
-一个功能强大的手势控制应用程序，支持实时手势识别、鼠标控制和自定义手势宏。
+A gesture control application that allows you to avoid touching the keyboard and mouse to quickly perform simple operations.
 
-## 功能特点
+## Features
 
-- 实时手势追踪和识别
-- 手势控制鼠标移动
-- 自定义手势录制和宏操作
-- 用户友好的图形界面
-- 丰富的自定义设置选项
+- Real-time gesture tracking and recognition
+- Gesture control mouse movement
+- Custom gesture recording and macro operations
 
-## 安装要求
+## Installation
 
-- Python 3.8+
-- OpenCV
-- MediaPipe
-- PyQt6
-- 其他依赖项（见requirements.txt）
+First, clone the repository and unzip it.
 
-## 安装步骤
-
-1. 克隆仓库：
 ```bash
-git clone [repository-url]
+git clone https://github.com/siztas/MotionSnippet.git
+cd MotionSnippet
 ```
 
-2. 安装依赖：
+Install the dependencies.(If you want to use a virtual environment, use the following commented command to create a virtual environment and install the dependencies.)
+
 ```bash
+# python -m venv venv
+# source venv/bin/activate # on Linux
+# venv\Scripts\activate # on Windows
 pip install -r requirements.txt
 ```
 
-3. 运行应用：
+and then run the program.
+
 ```bash
 python main.py
 ```
 
-## 使用说明
+Hope it helps you.
 
-1. 启动应用后，可以在设置菜单中配置各项参数
-2. 使用手势控制模式时，确保摄像头可以清晰拍摄到手部
-3. 在自定义手势页面可以录制和配置新的手势命令
+### License
 
-## 许可证
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-MIT License 

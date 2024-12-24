@@ -55,7 +55,7 @@ class MainWindow(ctk.CTk):
         preview_frame = ctk.CTkFrame(left_panel)
         preview_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
-        # 预览标签（使用空标签，避免显示初始文本）
+        # 预览标签
         self.preview_label = ctk.CTkLabel(preview_frame, text="")
         self.preview_label.pack(fill="both", expand=True)
         
@@ -100,10 +100,13 @@ class MainWindow(ctk.CTk):
         
         # 添加默认手势
         self.add_gesture_item(default_gestures_frame, "Point", "click")
+        self.add_gesture_item(default_gestures_frame, "Two Finger Point", "rightclick")
+        self.add_gesture_item(default_gestures_frame, "Three Finger Point", "tab")
+        self.add_gesture_item(default_gestures_frame, "Pinch", "win+tab")
         self.add_gesture_item(default_gestures_frame, "Left Swipe", "left")
         self.add_gesture_item(default_gestures_frame, "Right Swipe", "right")
-        self.add_gesture_item(default_gestures_frame, "Up Swipe", "up")
-        self.add_gesture_item(default_gestures_frame, "Down Swipe", "down")
+        self.add_gesture_item(default_gestures_frame, "Up Swipe", "pageup")
+        self.add_gesture_item(default_gestures_frame, "Down Swipe", "pagedown")
         
         # 自定义手势区域
         custom_frame = ctk.CTkFrame(self.right_panel)
